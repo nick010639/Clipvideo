@@ -1,0 +1,10 @@
+streamlit
+ffmpeg-python
+faster-whisper
+google-generativeai
+python-dotenv
+pandas
+imageio-ffmpeg
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+
