@@ -33,4 +33,5 @@ coverage.xml
 # Project specific
 output/
 download/
+downloads/
 video/

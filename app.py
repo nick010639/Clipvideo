@@ -65,6 +65,7 @@ from core.gemini_transcriber import GeminiTranscriber
 from core.translator import GeminiTranslator
 from core.subtitle import generate_srt
 import tempfile
+from core.downloader import VideoDownloader
 
 st.set_page_config(page_title="Video Subtitle Generator", page_icon="🎬", layout="wide")
 
@@ -134,15 +135,80 @@ else:
 
 
 # File uploader
-uploaded_file = st.file_uploader("上传视频文件", type=["mp4", "mov", "mkv", "avi"])
+# Source Selection
+st.divider()
+input_method = st.radio("选择视频来源", ["📂 上传本地文件", "🔗 输入视频链接"], horizontal=True)
 
-if uploaded_file is not None:
-    # Save uploaded file temporarily
-    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    tfile.write(uploaded_file.read())
-    video_path = tfile.name
-    tfile.close()
+video_path = None
+video_name = "video.mp4"
 
+if input_method == "📂 上传本地文件":
+    uploaded_file = st.file_uploader("上传视频文件", type=["mp4", "mov", "mkv", "avi"])
+    if uploaded_file is not None:
+        # Save uploaded file temporarily
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        tfile.write(uploaded_file.read())
+        video_path = tfile.name
+        video_name = uploaded_file.name
+        tfile.close()
+        
+        # Clear download session state to avoid confusion
+        if "downloaded_video_path" in st.session_state:
+            st.session_state.downloaded_video_path = None
+
+else: # Link Input
+    if "downloaded_video_path" not in st.session_state:
+        st.session_state.downloaded_video_path = None
+    
+    video_url = st.text_input("请输入视频 URL (支持 YouTube, Twitter/X, Bilibili 等)")
+            
+    if st.button("⬇️ 下载视频"):
+        if not video_url:
+            st.error("请输入有效的链接")
+        else:
+            downloader = VideoDownloader()
+            status_text = st.empty()
+            progress_bar = st.progress(0)
+            
+            def progress_callback(d):
+                if d['status'] == 'downloading':
+                    try:
+                        if d.get('total_bytes'):
+                            p = d['downloaded_bytes'] / d['total_bytes']
+                            progress_bar.progress(min(p, 1.0))
+                    except:
+                        pass
+                    status_text.text(f"下载进度: {d.get('_percent_str', '0%')}")
+                elif d['status'] == 'finished':
+                    progress_bar.progress(1.0)
+                    status_text.text("下载完成！")
+
+            try:
+                with st.spinner("正在下载视频..."):
+                    current_proxy = proxy_url if proxy_url else None
+                    
+                    downloaded_path = downloader.download_video(
+                        video_url, 
+                        proxy=current_proxy,
+                        progress_callback=progress_callback
+                    )
+                    st.session_state.downloaded_video_path = downloaded_path
+                    st.success(f"✅ 已下载: {os.path.basename(downloaded_path)}")
+                    st.info(f"📁 文件保存位置: {downloaded_path}")
+                    
+                    # Rerun to show video preview
+                    st.rerun()
+                        
+            except Exception as e:
+                st.error(f"下载失败: {e}")
+
+    # Restore from session state if available
+    if st.session_state.downloaded_video_path and os.path.exists(st.session_state.downloaded_video_path):
+        video_path = st.session_state.downloaded_video_path
+        video_name = os.path.basename(video_path)
+
+
+if video_path is not None:
     st.video(video_path)
 
     if st.button("开始生成字幕"):
@@ -203,7 +269,7 @@ if uploaded_file is not None:
 
                 # 4. Generate SRT
                 status_text.text("正在生成字幕文件...")
-                base_name = os.path.splitext(uploaded_file.name)[0]
+                base_name = os.path.splitext(video_name)[0]
                 output_dir = "output"
                 os.makedirs(output_dir, exist_ok=True)
                 
