@@ -27,6 +27,11 @@ class VideoDownloader:
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
             'noplaylist': True,
+            # Network stability options
+            'retries': 10,
+            'fragment_retries': 10,
+            'http_chunk_size': 10485760,  # 10MB
+            'socket_timeout': 30,
         }
         
         if proxy:

@@ -3,7 +3,7 @@ import time
 import json
 
 class GeminiTranslator:
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str, model_name: str = "gemini-3-flash-preview"):
         """
         Initialize Gemini Translator with API Key.
         """

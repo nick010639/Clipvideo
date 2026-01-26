@@ -90,48 +90,51 @@ if proxy_url:
     os.environ["HTTPS_PROXY"] = proxy_url
 
 # Model Settings
-gemini_model_name = st.sidebar.selectbox("Gemini 模型", ["gemini-3-flash-preview", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"], index=0)
-model_size = st.sidebar.selectbox("Whisper 模型大小", ["base", "small", "medium", "large-v3"], index=2)
-
-use_local_model = st.sidebar.checkbox("使用本地模型 (HuggingFace)", value=False)
-local_model_path = ""
-if use_local_model:
-    default_path = r"D:\HuggingFace\hub\models--Systran--faster-whisper-medium"
-    local_model_path = st.sidebar.text_input("本地模型路径", value=default_path)
-    
-    # Resolve snapshot path if needed
-    if os.path.exists(local_model_path):
-        if not os.path.exists(os.path.join(local_model_path, "model.bin")):
-            snapshots_dir = os.path.join(local_model_path, "snapshots")
-            if os.path.exists(snapshots_dir):
-                snapshots = os.listdir(snapshots_dir)
-                if snapshots:
-                    # Use the first snapshot found
-                    full_snapshot_path = os.path.join(snapshots_dir, snapshots[0])
-                    st.sidebar.info(f"Using snapshot: {snapshots[0]}")
-                    local_model_path = full_snapshot_path
-    else:
-        st.sidebar.warning("路径不存在，将尝试直接使用该路径。")
+# Model Settings
+gemini_model_name = "gemini-2.0-flash-exp"
 
 
 
-transcriber_engine = st.sidebar.selectbox(
-    "转录引擎", 
-    [
-        "Faster-Whisper 时间戳 + Gemini 翻译 (推荐)",
-        "Faster-Whisper (本地)", 
-        "Gemini (云端，时间戳不精准)"
-    ], 
-    index=0
+# Transcription Engine Selection
+st.sidebar.markdown("---")
+transcription_engine = st.sidebar.radio(
+    "转录引擎 / Transcription Engine", 
+    ["Faster-Whisper (Local)", "Gemini 1.5 Pro (Cloud)"], 
+    index=0,
+    help="Faster-Whisper: 免费、本地运行、需显卡显存。\nGemini 1.5 Pro: 收费/免费额度、云端运行、更强的多模态理解能力(区分说话人)。"
 )
 
-if "Gemini" in transcriber_engine and "Faster-Whisper" not in transcriber_engine:
-    # Pure Gemini mode
-    device_type = "cloud"
-    st.sidebar.info("使用 Gemini 进行转录（注意：时间戳可能不精准）")
-else:
-    # Faster-Whisper modes (local or hybrid)
+if transcription_engine == "Faster-Whisper (Local)":
+    # Faster-Whisper Settings
+    model_size = st.sidebar.selectbox("Whisper 模型大小", ["base", "small", "medium", "large-v3"], index=2)
+    
+    use_local_model = st.sidebar.checkbox("使用本地模型 (HuggingFace)", value=True)
+    local_model_path = ""
+    if use_local_model:
+        default_path = os.getenv("LOCAL_MODEL_PATH", r"D:\HuggingFace\hub\models--Systran--faster-whisper-medium")
+        local_model_path = st.sidebar.text_input("本地模型路径", value=default_path)
+        
+        # Resolve snapshot path if needed
+        if os.path.exists(local_model_path):
+            if not os.path.exists(os.path.join(local_model_path, "model.bin")):
+                snapshots_dir = os.path.join(local_model_path, "snapshots")
+                if os.path.exists(snapshots_dir):
+                    snapshots = os.listdir(snapshots_dir)
+                    if snapshots:
+                        # Use the first snapshot found
+                        full_snapshot_path = os.path.join(snapshots_dir, snapshots[0])
+                        st.sidebar.info(f"Using snapshot: {snapshots[0]}")
+                        local_model_path = full_snapshot_path
+        else:
+            st.sidebar.warning("路径不存在，将尝试直接使用该路径。")
+    
+    # Default to Faster-Whisper (Local or Hybrid)
     device_type = st.sidebar.radio("运行设备", ["cuda", "cpu"], index=0)
+
+else:
+    # Gemini Settings
+    st.sidebar.info("使用 Gemini 进行转录需要上传音频到 Google Cloud。请确保 API Key valid。")
+    device_type = "cloud" # Dummy value
 
 
 # File uploader
@@ -227,7 +230,9 @@ if video_path is not None:
 
                 # 2. Transcribe
                 segments = []
-                if "Faster-Whisper" in transcriber_engine:
+                
+                if transcription_engine == "Faster-Whisper (Local)":
+                    # Always use Faster-Whisper for transcription
                     final_model_size = local_model_path if use_local_model and local_model_path else model_size
                     compute_type = "float16" if device_type == "cuda" else "int8"
                     status_text.text(f"正在转录音频 (模型: {final_model_size}, 设备: {device_type}, 精度: {compute_type})...")
@@ -235,25 +240,22 @@ if video_path is not None:
                     
                     with st.spinner("Whisper 正在努力听写中..."):
                         segments = transcriber.transcribe(audio_path)
-                else:
-                    # Gemini Transcriber
-                    status_text.text("正在使用 Gemini 进行转录和说话人分离...")
-                    gemini_transcriber = GeminiTranscriber(api_key=api_key, model_name="gemini-3-flash-preview")
+                else: 
+                    # Use Gemini
+                    status_text.text(f"正在上传并使用 Gemini 进行转录...")
+                    # Using the same model for transcription as translation usually works, or specific one
+                    # gemini_transcriber.py uses gemini-3-flash-preview by default or passed model
+                    # optimizing for Speed/Cost: Flash is good. Pro is better for speakers.
+                    # Let's use the one configured in gemini_model_name variable (gemini-3-flash-preview)
+                    gemini_transcriber = GeminiTranscriber(api_key=api_key, model_name=gemini_model_name)
                     
-                    with st.spinner("Gemini 正在聆聽并分析说话人..."):
+                    with st.spinner("Gemini 正在分析音频 (上传 + 转录)..."):
                         segments = gemini_transcriber.transcribe(audio_path)
                 
                 st.success(f"转录完成，共 {len(segments)} 个片段。")
                 progress_bar.progress(40)
 
-                # 2.5 Refine Segments (optional, for Gemini mode only)
-                # When using Faster-Whisper, timestamps are already accurate
-                # When using Gemini, timestamps may need refinement
-                if "Gemini" in transcriber_engine and "Faster-Whisper" not in transcriber_engine:
-                    status_text.text("正在优化字幕分段...")
-                    from core.subtitle import refine_segments
-                    segments = refine_segments(segments, max_words=15, max_cjk_chars=30)
-                    st.info(f"分段优化完成，共 {len(segments)} 个片段。")
+                # 2.5 Refine Segments - Skipped (Faster-Whisper timestamps are accurate)
                 
                 progress_bar.progress(50)
 
@@ -270,6 +272,10 @@ if video_path is not None:
                 # 4. Generate SRT
                 status_text.text("正在生成字幕文件...")
                 base_name = os.path.splitext(video_name)[0]
+                # Sanitize filename: remove quotes and other problematic characters for FFmpeg
+                import re
+                base_name = re.sub(r"['\"]", "", base_name)  # Remove quotes
+                base_name = re.sub(r"[<>:\"|?*]", "_", base_name)  # Replace Windows-invalid chars
                 output_dir = "output"
                 os.makedirs(output_dir, exist_ok=True)
                 
@@ -342,7 +348,11 @@ if video_path is not None:
                     )
 
             except Exception as e:
+                # Ensure newlines in error message are respecting in the UI if possible, 
+                # but st.error handles markdown usually.
                 st.error(f"发生错误: {str(e)}")
+                # Also print to console for debugging
+                print(f"App Error: {e}")
             finally:
                 # Cleanup temp video file if desired, but user might want to see it
                 pass
